@@ -54,3 +54,41 @@ test("runVerify throws when the checker never calls submit_verdict", async () =>
     runVerify({ role: "checker", model: reg.getModel(), systemPrompt: "Review.", input: "review" }, trace),
   ).rejects.toThrow("checker did not submit a verdict")
 })
+
+test("runVerify rejects when the checker submits more than one verdict", async () => {
+  const reg = registerFauxProvider()
+  cleanups.push(() => reg.unregister())
+  // pi executes all tool calls in a turn before honoring terminate, so both submit_verdict calls fire.
+  reg.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("submit_verdict", { findings: [] }),
+        fauxToolCall("submit_verdict", { findings: [{ severity: "blocker", dimension: "spec", message: "x" }] }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+  ])
+  const path = join(tmpdir(), `carriage-verify-${process.pid}-${Math.floor(performance.now() * 1000)}.jsonl`)
+  cleanups.push(() => rm(path, { force: true }))
+  const trace = await TraceStore.open(path)
+  await expect(
+    runVerify({ role: "checker", model: reg.getModel(), systemPrompt: "Review.", input: "review" }, trace),
+  ).rejects.toThrow("submitted 2 verdicts")
+})
+
+test("runVerify strips extra fields from the submitted verdict", async () => {
+  const reg = registerFauxProvider()
+  cleanups.push(() => reg.unregister())
+  reg.setResponses([
+    fauxAssistantMessage(
+      [fauxToolCall("submit_verdict", { findings: [{ severity: "blocker", dimension: "spec", message: "x", note: "leak" }] })],
+      { stopReason: "toolUse" },
+    ),
+  ])
+  const path = join(tmpdir(), `carriage-verify-${process.pid}-${Math.floor(performance.now() * 1000)}.jsonl`)
+  cleanups.push(() => rm(path, { force: true }))
+  const trace = await TraceStore.open(path)
+  const result = await runVerify({ role: "checker", model: reg.getModel(), systemPrompt: "Review.", input: "review" }, trace)
+  expect(result.verdict.findings[0]).toEqual({ severity: "blocker", dimension: "spec", message: "x" })
+  expect((result.verdict.findings[0] as unknown as Record<string, unknown>).note).toBeUndefined()
+})

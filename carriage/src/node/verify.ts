@@ -2,7 +2,7 @@ import { Type, type Static } from "@earendil-works/pi-ai"
 import type { AgentTool } from "@earendil-works/pi-agent-core"
 import type { TraceStore, TraceEvent } from "../trace/trace-store.ts"
 import type { AgentNodeSpec } from "./types.ts"
-import type { Verdict } from "./verdict.ts"
+import type { Finding, Verdict } from "./verdict.ts"
 import { runAgentNode } from "./agent-node.ts"
 
 const VerdictSchema = Type.Object({
@@ -33,7 +33,16 @@ export function makeVerdictTool(onCapture: (verdict: Verdict) => void): AgentToo
     parameters: VerdictSchema,
     label: "submit verdict",
     execute: async (_toolCallId, params) => {
-      const verdict = params as Verdict
+      // pi validates params against VerdictSchema before execute runs, so findings is present;
+      // `?? []` keeps this self-defending. Reshape strips any extra fields the non-strict schema allowed.
+      const findings = (params as { findings?: Finding[] }).findings ?? []
+      const verdict: Verdict = {
+        findings: findings.map((finding) => ({
+          severity: finding.severity,
+          dimension: finding.dimension,
+          message: finding.message,
+        })),
+      }
       onCapture(verdict)
       return { content: [{ type: "text", text: "verdict recorded" }], details: verdict, terminate: true }
     },
@@ -49,16 +58,18 @@ export interface VerifyResult {
 }
 
 export async function runVerify(spec: VerifySpec, trace: TraceStore): Promise<VerifyResult> {
-  let captured: Verdict | undefined
+  const verdicts: Verdict[] = []
   const tool = makeVerdictTool((verdict) => {
-    if (captured !== undefined) throw new Error("checker submitted a verdict more than once")
-    captured = verdict
+    verdicts.push(verdict)
   })
 
   const result = await runAgentNode({ ...spec, tools: [tool] }, trace)
 
-  if (captured === undefined) {
+  if (verdicts.length === 0) {
     throw new Error("checker did not submit a verdict (no submit_verdict tool call)")
   }
-  return { verdict: captured, trace: result.trace }
+  if (verdicts.length > 1) {
+    throw new Error(`checker submitted ${verdicts.length} verdicts; expected exactly one`)
+  }
+  return { verdict: verdicts[0]!, trace: result.trace }
 }
