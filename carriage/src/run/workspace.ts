@@ -30,6 +30,7 @@ export class Workspace {
 
   /** Path for a run's JSONL trace under runRoot. `runId` must be a safe filename token (no path separators). */
   tracePath(runId: string): string {
+    if (!/^[\w.-]+$/.test(runId)) throw new Error(`invalid runId (must match /^[\\w.-]+$/): ${JSON.stringify(runId)}`)
     return join(this.runRoot, "traces", `${runId}.jsonl`)
   }
 

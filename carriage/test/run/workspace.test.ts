@@ -65,3 +65,14 @@ test("Workspace pins the checkout to an explicit rev", async () => {
   expect(await readFile(join(ws.targetDir, "file.txt"), "utf8")).toBe("original\n")
   await ws.dispose()
 })
+
+test("tracePath rejects an unsafe runId and accepts a safe token", async () => {
+  const target = await fixtureRepo()
+  const runRoot = join(tmpdir(), `carriage-run-${process.pid}-${Math.floor(performance.now() * 1000)}`)
+  cleanups.push(() => rm(runRoot, { recursive: true, force: true }))
+
+  const ws = await Workspace.create({ targetRepo: target, runRoot })
+  expect(ws.tracePath("demo")).toBe(join(runRoot, "traces", "demo.jsonl"))
+  expect(() => ws.tracePath("../escape")).toThrow("invalid runId")
+  await ws.dispose()
+})
