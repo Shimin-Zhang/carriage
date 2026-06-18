@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { TraceStore } from "../trace/trace-store.ts"
