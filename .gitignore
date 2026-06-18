@@ -1,0 +1,10 @@
+# External reference checkouts (large, each is its own git repo) — not part of this repo
+reference/
+
+# Node / Bun
+node_modules/
+*.tsbuildinfo
+bun.lock.lockb
+
+# OS / editor cruft
+.DS_Store
