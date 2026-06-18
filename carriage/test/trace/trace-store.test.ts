@@ -56,3 +56,34 @@ test("append round-trips arbitrary payload fields", async () => {
   expect(event.toolName).toBe("bash")
   expect(event.isError).toBe(false)
 })
+
+test("read() skips a malformed trailing line (crash mid-append) instead of throwing", async () => {
+  const path = scratchPath()
+  await Bun.write(
+    path,
+    '{"seq":0,"ts":1,"type":"a"}\n{"seq":1,"ts":2,"type":"b"}\n{"seq":2,"ts":3,"ty',
+  )
+  const store = await TraceStore.open(path)
+  const events = await store.read()
+  expect(events.map((e) => e.type)).toEqual(["a", "b"])
+  await rm(path, { force: true })
+})
+
+test("open() resumes seq from the max valid record after a partial trailing line", async () => {
+  const path = scratchPath()
+  await Bun.write(
+    path,
+    '{"seq":0,"ts":1,"type":"a"}\n{"seq":1,"ts":2,"type":"b"}\n{"seq":2,"ts":3,"ty',
+  )
+  const store = await TraceStore.open(path)
+  const next = await store.append({ type: "c" })
+  expect(next.seq).toBe(2) // max parsed seq is 1 (the partial seq:2 line was skipped) → resume = 1 + 1 = 2
+  await rm(path, { force: true })
+})
+
+test("open() throws on a malformed non-trailing line (real corruption, not a crash artifact)", async () => {
+  const path = scratchPath()
+  await Bun.write(path, '{"seq":0,"ts":1,"type":"a"}\nGARBAGE NOT JSON\n{"seq":2,"ts":3,"type":"c"}\n')
+  await expect(TraceStore.open(path)).rejects.toThrow()
+  await rm(path, { force: true })
+})

@@ -21,8 +21,9 @@ export class TraceStore {
   }
 
   static async open(filePath: string): Promise<TraceStore> {
-    const existing = await TraceStore.readLines(filePath)
-    return new TraceStore(filePath, existing.length)
+    const existing = await TraceStore.readParsed(filePath)
+    const startSeq = existing.reduce((max, event) => (event.seq > max ? event.seq : max), -1) + 1
+    return new TraceStore(filePath, startSeq)
   }
 
   async append(event: TraceInput): Promise<TraceEvent> {
@@ -34,14 +35,24 @@ export class TraceStore {
   }
 
   async read(): Promise<TraceEvent[]> {
-    const lines = await TraceStore.readLines(this.filePath)
-    return lines.map((line) => JSON.parse(line) as TraceEvent)
+    return TraceStore.readParsed(this.filePath)
   }
 
-  private static async readLines(filePath: string): Promise<string[]> {
+  /** Reads + parses the trace, tolerating a partial *trailing* line (a crash mid-append). A malformed
+   * non-trailing line is real corruption and throws, rather than silently dropping events. */
+  private static async readParsed(filePath: string): Promise<TraceEvent[]> {
     const file = Bun.file(filePath)
     if (!(await file.exists())) return []
-    const text = await file.text()
-    return text.split("\n").filter((line) => line.trim().length > 0)
+    const lines = (await file.text()).split("\n").filter((line) => line.trim().length > 0)
+    const events: TraceEvent[] = []
+    for (let i = 0; i < lines.length; i++) {
+      try {
+        events.push(JSON.parse(lines[i]!) as TraceEvent)
+      } catch (error) {
+        if (i === lines.length - 1) break // tolerate a partial trailing record from a crash
+        throw error // a malformed non-trailing line is corruption — fail loudly, don't lose events
+      }
+    }
+    return events
   }
 }
