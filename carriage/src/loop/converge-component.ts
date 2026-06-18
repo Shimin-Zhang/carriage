@@ -33,6 +33,10 @@ export async function convergeComponent(opts: ConvergeComponentOptions): Promise
       return escalate(opts, iteration, `oracle unmeasurable: ${detail}`)
     }
 
+    if (oracle.signals.length === 0) {
+      return escalate(opts, iteration, "oracle reported no signals (unmeasurable)")
+    }
+
     if (convergence({ verdict, oracle }).converged) {
       await opts.tracker.setStatus(opts.component, "converged")
       return { status: "converged", iterations: iteration }
@@ -45,7 +49,8 @@ export async function convergeComponent(opts: ConvergeComponentOptions): Promise
     previousUnresolved = unresolved
   }
 
-  return escalate(opts, opts.maxIterations, "budget exhausted")
+  // clamp: a negative maxIterations never enters the loop; report 0, not a negative count
+  return escalate(opts, Math.max(0, opts.maxIterations), "budget exhausted")
 }
 
 async function escalate(opts: ConvergeComponentOptions, iterations: number, reason: string): Promise<ConvergeOutcome> {

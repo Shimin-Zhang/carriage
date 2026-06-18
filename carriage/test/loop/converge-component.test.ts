@@ -4,8 +4,8 @@ import { StubOracle, type OracleResult } from "../../src/eval/oracle.ts"
 import type { Verdict } from "../../src/node/verdict.ts"
 import type { ComponentStatus, Tracker } from "../../src/tracker/tracker.ts"
 
-const PASS: OracleResult = { pass: true, signals: [] }
-const FAIL: OracleResult = { pass: false, signals: [] }
+const PASS: OracleResult = { pass: true, signals: [{ name: "stub", pass: true }] }
+const FAIL: OracleResult = { pass: false, signals: [{ name: "stub", pass: false }] }
 const clean: Verdict = { findings: [] }
 const blocker: Verdict = { findings: [{ severity: "blocker", dimension: "impl", message: "bug" }] }
 const twoBlockers: Verdict = {
@@ -142,4 +142,30 @@ test("calls builder and verify with the 1-based iteration number", async () => {
   })
   expect(builderCalls).toEqual([1, 2])
   expect(verifyCalls).toEqual([1, 2])
+})
+
+test("escalates when Oracle returns a vacuous pass (signals: []) — Oracle must be measurable", async () => {
+  const { tracker } = fakeTracker()
+  const outcome = await convergeComponent({
+    component: "move-gen",
+    builder: noopBuilder,
+    verify: scriptedVerify([clean]),
+    oracle: new StubOracle({ pass: true, signals: [] }),
+    tracker,
+    maxIterations: 5,
+  })
+  expect(outcome).toEqual({ status: "escalated", iterations: 1, reason: "oracle reported no signals (unmeasurable)" })
+})
+
+test("escalates immediately with iterations: 0 when maxIterations is negative", async () => {
+  const { tracker } = fakeTracker()
+  const outcome = await convergeComponent({
+    component: "move-gen",
+    builder: noopBuilder,
+    verify: scriptedVerify([clean]),
+    oracle: new StubOracle(PASS),
+    tracker,
+    maxIterations: -3,
+  })
+  expect(outcome).toEqual({ status: "escalated", iterations: 0, reason: "budget exhausted" })
 })

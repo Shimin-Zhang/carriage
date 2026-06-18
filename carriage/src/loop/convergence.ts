@@ -15,6 +15,7 @@ export type ConvergenceVerdict = { converged: true } | { converged: false; reaso
  */
 export function convergence(input: ConvergenceInput): ConvergenceVerdict {
   if (!input.oracle.pass) return { converged: false, reason: "oracle not passing" }
+  if (input.oracle.signals.length === 0) return { converged: false, reason: "oracle reported no signals (unmeasurable)" }
   const unresolved = unresolvedCount(input.verdict)
   if (unresolved > 0) return { converged: false, reason: `${unresolved} unresolved finding(s)` }
   return { converged: true }
