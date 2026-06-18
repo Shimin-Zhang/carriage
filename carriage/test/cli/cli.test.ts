@@ -3,7 +3,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { rm } from "node:fs/promises"
 import { TraceStore } from "../../src/trace/trace-store.ts"
-import { runFauxDemo, formatTrace } from "../../src/cli/commands.ts"
+import { runFauxDemo, formatTrace, runConvergeDemo } from "../../src/cli/commands.ts"
+import { MarkdownTracker } from "../../src/tracker/markdown-tracker.ts"
 
 const cleanups: Array<() => void | Promise<void>> = []
 afterEach(async () => {
@@ -32,4 +33,22 @@ test("formatTrace renders one line per event as 'seq role type'", () => {
 
 test("formatTrace falls back to '-' for events without a role", () => {
   expect(formatTrace([{ seq: 0, ts: 0, type: "ping" }])).toBe("0\t-\tping")
+})
+
+test("runConvergeDemo drives a faux component to convergence inside an isolated workspace and writes the ledger", async () => {
+  const dir = join(tmpdir(), `carriage-converge-${process.pid}-${Math.floor(performance.now() * 1000)}`)
+  cleanups.push(() => rm(dir, { recursive: true, force: true }))
+
+  const result = await runConvergeDemo(dir)
+
+  expect(result.outcome.status).toBe("converged")
+  expect(result.targetRev).toMatch(/^[0-9a-f]{40}$/)
+
+  // ledger persists after the isolated worktree is disposed
+  const tracker = await MarkdownTracker.open(result.ledgerPath)
+  expect(await tracker.getStatus("move-gen")).toBe("converged")
+
+  const events = await (await TraceStore.open(result.tracePath)).read()
+  expect(events.length).toBeGreaterThan(0)
+  expect(events.map((e) => e.type)).toContain("agent_end")
 })
