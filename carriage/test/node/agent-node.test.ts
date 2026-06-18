@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { rm } from "node:fs/promises"
 import { registerFauxProvider, fauxAssistantMessage, fauxThinking } from "@earendil-works/pi-ai"
-import { TraceStore } from "../../src/trace/trace-store.ts"
+import { TraceStore, type TraceEvent } from "../../src/trace/trace-store.ts"
 import { runAgentNode } from "../../src/node/agent-node.ts"
 
 const cleanups: Array<() => void | Promise<void>> = []
@@ -35,6 +35,30 @@ test("runAgentNode runs a faux loop, returns final text, and persists the trace"
   expect(result.trace.every((e, i) => e.seq === i)).toBe(true)
 
   expect((await trace.read()).length).toBe(result.trace.length)
+})
+
+test("runAgentNode surfaces a trace-write failure instead of returning bogus empty success", async () => {
+  const reg = registerFauxProvider()
+  cleanups.push(() => reg.unregister())
+  reg.setResponses([fauxAssistantMessage("done", { stopReason: "stop" })])
+
+  // Fails on the first append (simulating disk-full mid-run) but succeeds on
+  // subsequent calls (pi's error-recovery events).  Without the fix, pi catches
+  // the throw from our subscriber, emits synthetic failure events that our
+  // subscriber appends successfully, and runAgentNode resolves with text: ""
+  // instead of rejecting — a silent data-loss bug.
+  let callCount = 0
+  const failingTrace = {
+    append: () => {
+      callCount++
+      if (callCount === 1) return Promise.reject(new Error("disk full"))
+      return Promise.resolve({ seq: callCount, role: "builder", type: "agent_start", ts: Date.now() } as TraceEvent)
+    },
+  } as unknown as TraceStore
+
+  await expect(
+    runAgentNode({ role: "builder", model: reg.getModel(), systemPrompt: "x", input: "hi" }, failingTrace),
+  ).rejects.toThrow("disk full")
 })
 
 test("runAgentNode returns empty text when the assistant produces no text", async () => {

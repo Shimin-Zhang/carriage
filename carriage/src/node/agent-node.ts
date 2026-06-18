@@ -6,6 +6,7 @@ import type { AgentNodeSpec, AgentNodeResult } from "./types.ts"
 
 export async function runAgentNode(spec: AgentNodeSpec, trace: TraceStore): Promise<AgentNodeResult> {
   const captured: TraceEvent[] = []
+  let appendError: unknown
 
   const agent = new Agent({
     initialState: {
@@ -19,7 +20,13 @@ export async function runAgentNode(spec: AgentNodeSpec, trace: TraceStore): Prom
   // pi-agent-core awaits listeners before resolving prompt(), so every append
   // is persisted by the time the run settles.
   const unsubscribe = agent.subscribe(async (event) => {
-    captured.push(await trace.append({ role: spec.role, type: event.type, ...summarize(event) }))
+    // Swallow append errors here so pi doesn't catch the throw and degrade the run to an empty success;
+    // re-throw after the run settles so a failed audit-trace write surfaces to the caller.
+    try {
+      captured.push(await trace.append({ role: spec.role, type: event.type, ...summarize(event) }))
+    } catch (error) {
+      appendError ??= error
+    }
   })
 
   try {
@@ -28,6 +35,7 @@ export async function runAgentNode(spec: AgentNodeSpec, trace: TraceStore): Prom
     unsubscribe()
   }
 
+  if (appendError !== undefined) throw appendError
   return { text: finalAssistantText(agent.state.messages), trace: captured }
 }
 
