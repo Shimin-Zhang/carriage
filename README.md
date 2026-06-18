@@ -25,25 +25,41 @@ Development) to a vibe-coded chess engine, and measure the result** — chess gi
 | Stage | State |
 |---|---|
 | Design spec | ✅ Approved — `docs/superpowers/specs/2026-06-17-carriage-design.md` |
-| Plan 1a — **walking skeleton** | ✅ **Implemented & passing** (9 tests, offline) |
-| Plan 1b — convergence loop (`verify` / `convergence` / `MarkdownTracker` / run-isolation) | ⬜ Planned (next) |
-| Plan 1c — chess Oracle (perft / test-pass / fixtures) | ⬜ Planned |
-| Phase 2+ — real VSDD workflow, decomposition, compare | ⬜ Designed, not planned-out |
+| Plan 1a — **walking skeleton** (Agent-node adapter / `TraceStore` / CLI) | ✅ **Done** |
+| Plan 1b — convergence loop (`verify` / `convergence` / `MarkdownTracker` / run-isolation) | ✅ **Done** |
+| Plan 1c — chess Oracle (perft node counts / command engine adapter / `converge --chess`) | ✅ **Done** |
+| Correctness pass (T1–T5: Oracle invariant, verify, trace integrity, guards) | ✅ **Done** |
+| Phase 2+ — real multi-phase VSDD workflow, decomposition, workflow-vs-workflow compare | ⬜ Designed, not planned-out |
 
-### What works right now (Plan 1a)
+**56 tests, fully offline, typecheck clean.**
 
-A fully **offline, zero-token** vertical slice that proves the core seam end-to-end:
+### What works right now
+
+A fully **offline, zero-token** vertical slice — an Agent loop converging against a real,
+unfakeable measurement:
 
 - **`runAgentNode`** (`carriage/src/node/agent-node.ts`) — the Agent-node adapter: runs one Pi agent
-  loop and captures every event. This is Carriage's **only** Pi-touching module, behind its own
+  loop and captures every event. Carriage's **only** Pi-touching module, behind its own
   `AgentNodeSpec → AgentNodeResult` contract — so Pi is a swappable implementation detail
   (the "depend on an interface, not a library" hedge from the spec).
+- **`verify`** (`carriage/src/node/verify.ts`) — an Agent in a checker role, emitting a structured
+  `Verdict` via a `submit_verdict` tool (exactly-one-verdict enforced).
+- **`convergence` + `convergeComponent`** (`carriage/src/loop/`) — the loop: a pure `convergence()`
+  that enforces the **Oracle invariant** (no "converged" without a passing *and measurable* Oracle),
+  driving an iteration loop with budget, escalation, and oscillation handling.
+- **`Oracle` + `ChessOracle`** (`carriage/src/eval/`) — deterministic measurement; the chess oracle
+  gates convergence on **perft** node counts vs community-verified references, shelling out to an
+  engine via `CommandEngineAdapter`. An LLM can't fake a perft count.
 - **`TraceStore`** (`carriage/src/trace/trace-store.ts`) — append-only JSONL log of every loop event,
-  resumable and round-trippable.
-- **CLI** (`carriage/src/cli/`) — `run --faux` runs a real agent loop through Pi's **faux** (scripted,
-  in-memory) provider and writes a trace; `trace <file>` pretty-prints it.
+  resumable and round-trippable (tolerant of a partial trailing line).
+- **`MarkdownTracker`** (`carriage/src/tracker/`) — a markdown ledger of per-component status.
+- **`Workspace`** (`carriage/src/run/workspace.ts`) — run-isolation: each run gets a detached git
+  worktree of the target at a pinned rev; dispose removes only the worktree.
+- **CLI** (`carriage/src/cli/`) — `run --faux`, `converge --faux`, `converge --chess[-buggy]`,
+  `trace <file>`.
 
-Tested with the faux provider (model determinism) + the real filesystem — no API keys, no network.
+Tested with Pi's **faux** (scripted, in-memory) provider + a real perft command engine + a throwaway
+git fixture — no API keys, no network.
 
 ---
 
@@ -52,12 +68,15 @@ Tested with the faux provider (model determinism) + the real filesystem — no A
 Requires [Bun](https://bun.sh). From `carriage/`:
 
 ```bash
-bun install                          # installs @earendil-works/pi-agent-core + pi-ai (0.79.6)
-bun test                             # 9 tests, all offline
-bun run typecheck                    # tsc --noEmit, clean
+bun install                              # installs @earendil-works/pi-agent-core + pi-ai (0.79.6)
+bun test                                 # 56 tests, all offline
+bun run typecheck                        # tsc --noEmit, clean
 
-bun run src/cli/index.ts run --faux  # runs a faux agent loop, writes a JSONL trace, prints the path
-bun run src/cli/index.ts trace <path># pretty-prints that trace: "seq  role  type" per event
+bun run src/cli/index.ts run --faux      # runs a faux agent loop, writes a JSONL trace, prints the path
+bun run src/cli/index.ts converge --faux # runs the full convergence loop against a stub Oracle
+bun run src/cli/index.ts converge --chess        # converges a target gated by the real perft Oracle
+bun run src/cli/index.ts converge --chess-buggy  # same, but the engine is wrong → escalates, never converges
+bun run src/cli/index.ts trace <path>    # pretty-prints a trace: "seq  role  type" per event
 ```
 
 Example trace from `run --faux` (the faux loop emits the full event sequence):
@@ -75,17 +94,24 @@ Example trace from `run --faux` (the faux loop emits the full event sequence):
 
 ```
 .
-├── README.md                  # this file
-├── carriage/                  # the Carriage tool (Bun + TypeScript)
-│   ├── src/{trace,node,cli}/  # TraceStore · Agent-node adapter · CLI
-│   └── test/{trace,node,cli}/ # offline, faux-provider + filesystem tests
+├── README.md                   # this file
+├── carriage/                   # the Carriage tool (Bun + TypeScript)
+│   ├── src/
+│   │   ├── node/               # Agent-node adapter · verify checker · Verdict
+│   │   ├── loop/               # convergence() (Oracle invariant) · convergeComponent
+│   │   ├── eval/               # Oracle interface · chess perft Oracle + engine adapters
+│   │   ├── trace/              # append-only JSONL TraceStore
+│   │   ├── tracker/            # markdown status ledger
+│   │   ├── run/                # Workspace (git-worktree run-isolation)
+│   │   └── cli/                # run / converge / trace commands
+│   └── test/                   # offline tests mirroring src/ (faux provider + real fs + git fixture)
 ├── docs/
-│   ├── superpowers/specs/     # the approved Carriage design spec
-│   ├── superpowers/plans/     # implementation plans (1a done; 1b/1c next)
-│   ├── core_loops.md          # core agent-loop comparison (Codex/OpenHarness/Pi/OpenCode)
-│   ├── loop_engineering_gaps.md  # the L1–L4 framing this project builds on
-│   └── *_codebase.md          # codebase analyses of the four reference harnesses
-└── reference/                 # external harness checkouts (gitignored): codex, opencode, pi, OpenHarness
+│   ├── superpowers/specs/      # the approved Carriage design spec
+│   ├── superpowers/plans/      # implementation plans (1a / 1b / 1c — all done)
+│   ├── core_loops.md           # core agent-loop comparison (Codex/OpenHarness/Pi/OpenCode)
+│   ├── loop_engineering_gaps.md   # the L1–L4 framing this project builds on
+│   └── *_codebase.md           # codebase analyses of the four reference harnesses
+└── reference/                  # external harness checkouts (gitignored): codex, opencode, pi, OpenHarness
 ```
 
 ---
