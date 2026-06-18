@@ -48,3 +48,8 @@ test("open() on a missing file returns an empty tracker", async () => {
   expect(await tracker.openComponents()).toEqual([])
   expect(await tracker.getStatus("anything")).toBeUndefined()
 })
+
+test("setStatus rejects a component name containing a newline", async () => {
+  const tracker = await MarkdownTracker.open(ledgerPath())
+  await expect(tracker.setStatus("foo\nbar", "open")).rejects.toThrow("must not contain a newline")
+})

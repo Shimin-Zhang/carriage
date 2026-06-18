@@ -18,7 +18,7 @@ export class CommandEngineAdapter implements EngineAdapter {
     // No timeout here: a real engine that hangs would hang measure() — add an AbortSignal in Phase 2.
     const stdout = (await $`${argv}`.cwd(this.options.cwd).text()).trim()
     const count = Number(stdout)
-    if (stdout === "" || !Number.isFinite(count)) {
+    if (stdout === "" || !Number.isFinite(count) || count < 0) {
       throw new Error(`engine perft did not return a number (got ${JSON.stringify(stdout)})`)
     }
     return count

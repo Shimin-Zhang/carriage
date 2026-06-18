@@ -14,6 +14,9 @@ export class MarkdownTracker implements Tracker {
   }
 
   async setStatus(component: string, status: ComponentStatus): Promise<void> {
+    if (component.includes("\n")) {
+      throw new Error(`component name must not contain a newline: ${JSON.stringify(component)}`)
+    }
     this.entries.set(component, status)
     await this.write()
   }

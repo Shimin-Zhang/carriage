@@ -102,8 +102,11 @@ export async function runConvergeDemo(workDir: string): Promise<ConvergeDemoResu
 
     return { outcome, ledgerPath: workspace.ledgerPath, targetRev: workspace.targetRev, tracePath }
   } finally {
-    await workspace?.dispose()
-    reg.unregister()
+    try {
+      await workspace?.dispose()
+    } finally {
+      reg.unregister()
+    }
   }
 }
 
@@ -177,7 +180,10 @@ export async function runChessConvergeDemo(workDir: string, mode: "correct" | "b
 
     return { outcome, ledgerPath: workspace.ledgerPath, targetRev: workspace.targetRev, tracePath }
   } finally {
-    await workspace?.dispose()
-    reg.unregister()
+    try {
+      await workspace?.dispose()
+    } finally {
+      reg.unregister()
+    }
   }
 }
