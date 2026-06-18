@@ -2,7 +2,7 @@ import { test, expect, afterEach } from "bun:test"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { rm } from "node:fs/promises"
-import { registerFauxProvider, fauxAssistantMessage } from "@earendil-works/pi-ai"
+import { registerFauxProvider, fauxAssistantMessage, fauxThinking } from "@earendil-works/pi-ai"
 import { TraceStore } from "../../src/trace/trace-store.ts"
 import { runAgentNode } from "../../src/node/agent-node.ts"
 
@@ -35,4 +35,22 @@ test("runAgentNode runs a faux loop, returns final text, and persists the trace"
   expect(result.trace.every((e, i) => e.seq === i)).toBe(true)
 
   expect((await trace.read()).length).toBe(result.trace.length)
+})
+
+test("runAgentNode returns empty text when the assistant produces no text", async () => {
+  const reg = registerFauxProvider()
+  cleanups.push(() => reg.unregister())
+  reg.setResponses([fauxAssistantMessage([fauxThinking("thinking, no text")], { stopReason: "stop" })])
+
+  const path = join(tmpdir(), `carriage-node-${process.pid}-${Math.floor(performance.now() * 1000)}.jsonl`)
+  cleanups.push(() => rm(path, { force: true }))
+  const trace = await TraceStore.open(path)
+
+  const result = await runAgentNode(
+    { role: "builder", model: reg.getModel(), systemPrompt: "Be terse.", input: "hi" },
+    trace,
+  )
+
+  expect(result.text).toBe("")
+  expect(result.trace.map((e) => e.type)).toContain("agent_end")
 })

@@ -46,3 +46,13 @@ test("open() resumes seq from an existing file", async () => {
   expect(next.seq).toBe(1)
   expect((await second.read()).length).toBe(2)
 })
+
+test("append round-trips arbitrary payload fields", async () => {
+  const store = await TraceStore.open(scratchPath())
+  await store.append({ type: "tool_execution_end", role: "builder", toolName: "bash", isError: false })
+  const [event] = await store.read()
+  expect(event.type).toBe("tool_execution_end")
+  expect(event.role).toBe("builder")
+  expect(event.toolName).toBe("bash")
+  expect(event.isError).toBe(false)
+})
