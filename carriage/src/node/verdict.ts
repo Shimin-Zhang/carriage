@@ -10,3 +10,8 @@ export interface Finding {
 export interface Verdict {
   findings: Finding[]
 }
+
+/** Count of findings that block convergence — everything stricter than "nitpick". */
+export function unresolvedCount(verdict: Verdict): number {
+  return verdict.findings.filter((finding) => finding.severity !== "nitpick").length
+}
