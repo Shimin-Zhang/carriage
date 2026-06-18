@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { rm } from "node:fs/promises"
 import { TraceStore } from "../../src/trace/trace-store.ts"
-import { runFauxDemo, formatTrace, runConvergeDemo } from "../../src/cli/commands.ts"
+import { runFauxDemo, formatTrace, runConvergeDemo, runChessConvergeDemo } from "../../src/cli/commands.ts"
 import { MarkdownTracker } from "../../src/tracker/markdown-tracker.ts"
 
 const cleanups: Array<() => void | Promise<void>> = []
@@ -51,4 +51,20 @@ test("runConvergeDemo drives a faux component to convergence inside an isolated 
   const events = await (await TraceStore.open(result.tracePath)).read()
   expect(events.length).toBeGreaterThan(0)
   expect(events.map((e) => e.type)).toContain("agent_end")
+})
+
+test("runChessConvergeDemo: a correct engine converges (real perft gating)", async () => {
+  const dir = join(tmpdir(), `carriage-chess-ok-${process.pid}-${Math.floor(performance.now() * 1000)}`)
+  cleanups.push(() => rm(dir, { recursive: true, force: true }))
+  const result = await runChessConvergeDemo(dir, "correct")
+  expect(result.outcome.status).toBe("converged")
+  const events = await (await TraceStore.open(result.tracePath)).read()
+  expect(events.length).toBeGreaterThan(0)
+})
+
+test("runChessConvergeDemo: a buggy engine does NOT converge (perft gates, loop escalates)", async () => {
+  const dir = join(tmpdir(), `carriage-chess-bad-${process.pid}-${Math.floor(performance.now() * 1000)}`)
+  cleanups.push(() => rm(dir, { recursive: true, force: true }))
+  const result = await runChessConvergeDemo(dir, "buggy")
+  expect(result.outcome.status).toBe("escalated")
 })

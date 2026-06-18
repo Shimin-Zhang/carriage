@@ -2,7 +2,7 @@
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { TraceStore } from "../trace/trace-store.ts"
-import { runFauxDemo, formatTrace, runConvergeDemo } from "./commands.ts"
+import { runFauxDemo, formatTrace, runConvergeDemo, runChessConvergeDemo } from "./commands.ts"
 
 async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv
@@ -32,7 +32,19 @@ async function main(argv: string[]): Promise<number> {
     return 0
   }
 
-  console.error("usage:\n  carriage run --faux\n  carriage converge --faux\n  carriage trace <file.jsonl>")
+  if (command === "converge" && (rest[0] === "--chess" || rest[0] === "--chess-buggy")) {
+    const dir = join(tmpdir(), `carriage-chess-${Date.now()}`)
+    const result = await runChessConvergeDemo(dir, rest[0] === "--chess-buggy" ? "buggy" : "correct")
+    console.log(`outcome: ${result.outcome.status} (${result.outcome.iterations} iteration(s))`)
+    console.log(`target rev: ${result.targetRev}`)
+    console.log(`ledger: ${result.ledgerPath}`)
+    console.log(`trace: ${result.tracePath}`)
+    return 0
+  }
+
+  console.error(
+    "usage:\n  carriage run --faux\n  carriage converge --faux\n  carriage converge --chess\n  carriage converge --chess-buggy\n  carriage trace <file.jsonl>",
+  )
   return 1
 }
 

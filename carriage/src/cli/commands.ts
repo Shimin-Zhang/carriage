@@ -9,6 +9,9 @@ import { convergeComponent, type ConvergeOutcome } from "../loop/converge-compon
 import { StubOracle } from "../eval/oracle.ts"
 import { MarkdownTracker } from "../tracker/markdown-tracker.ts"
 import { Workspace } from "../run/workspace.ts"
+import { ChessOracle } from "../eval/chess/chess-oracle.ts"
+import { CommandEngineAdapter } from "../eval/chess/command-engine-adapter.ts"
+import { PERFT_POSITIONS } from "../eval/chess/perft-reference.ts"
 
 export interface FauxDemoResult {
   text: string
@@ -95,6 +98,81 @@ export async function runConvergeDemo(workDir: string): Promise<ConvergeDemoResu
       oracle: new StubOracle({ pass: true, signals: [{ name: "stub-perft", pass: true }] }),
       tracker,
       maxIterations: 5,
+    })
+
+    return { outcome, ledgerPath: workspace.ledgerPath, targetRev: workspace.targetRev, tracePath }
+  } finally {
+    await workspace?.dispose()
+    reg.unregister()
+  }
+}
+
+export interface ChessConvergeDemoResult {
+  outcome: ConvergeOutcome
+  ledgerPath: string
+  targetRev: string
+  tracePath: string
+}
+
+/** Writes a throwaway "chess engine" repo whose perft is correct or has a seeded bug. */
+async function createChessEngineTarget(dir: string, mode: "correct" | "buggy"): Promise<string> {
+  await mkdir(dir, { recursive: true })
+  const table = `{ "1": 20, "2": 400, "3": ${mode === "buggy" ? 8900 : 8902} }`
+  const engine = `const depth = process.argv[3]\nconst table = ${table}\nconst n = table[depth]\nif (n === undefined) process.exit(3)\nconsole.log(n)\n`
+  await writeFile(join(dir, "engine.ts"), engine)
+  await $`git -C ${dir} init -q`.quiet()
+  await $`git -C ${dir} config user.email demo@example.com`.quiet()
+  await $`git -C ${dir} config user.name Demo`.quiet()
+  await $`git -C ${dir} add .`.quiet()
+  await $`git -C ${dir} commit -q -m "initial engine"`.quiet()
+  return dir
+}
+
+/**
+ * Offline demo: isolate a chess-engine fixture, then run the convergence loop with a faux builder
+ * + faux clean checker, gated by the REAL ChessOracle (perft). A correct engine converges; a buggy
+ * one fails perft so the Oracle gates and the loop escalates.
+ */
+export async function runChessConvergeDemo(workDir: string, mode: "correct" | "buggy"): Promise<ChessConvergeDemoResult> {
+  const reg = registerFauxProvider()
+  let workspace: Workspace | undefined
+  try {
+    // The faux builder does nothing each iteration; the checker always submits a clean verdict.
+    // With maxIterations 3, a buggy engine (perft fails) burns the budget and escalates.
+    reg.setResponses(
+      Array.from({ length: 3 }).flatMap(() => [
+        fauxAssistantMessage("working on the engine", { stopReason: "stop" }),
+        fauxAssistantMessage([fauxToolCall("submit_verdict", { findings: [] })], { stopReason: "toolUse" }),
+      ]),
+    )
+
+    const target = await createChessEngineTarget(join(workDir, "target-src"), mode)
+    workspace = await Workspace.create({ targetRepo: target, runRoot: join(workDir, "run") })
+
+    const model = reg.getModel()
+    const tracePath = workspace.tracePath("chess")
+    const tracker = await MarkdownTracker.open(workspace.ledgerPath)
+    const trace = await TraceStore.open(tracePath)
+    const startposOnly = PERFT_POSITIONS.filter((position) => position.name === "startpos")
+    const oracle = new ChessOracle({
+      adapter: new CommandEngineAdapter({
+        cwd: workspace.targetDir,
+        perftCommand: (depth, fen) => ["bun", "run", "engine.ts", "perft", String(depth), fen],
+      }),
+      positions: startposOnly,
+      maxDepth: 3,
+    })
+
+    const outcome = await convergeComponent({
+      component: "move-gen",
+      builder: async (i) => {
+        await runAgentNode({ role: "builder", model, systemPrompt: "Work on move-gen.", input: `iteration ${i}` }, trace)
+      },
+      verify: async (i) =>
+        (await runVerify({ role: "checker", model, systemPrompt: "Review move-gen.", input: `review ${i}` }, trace)).verdict,
+      oracle,
+      tracker,
+      maxIterations: 3,
     })
 
     return { outcome, ledgerPath: workspace.ledgerPath, targetRev: workspace.targetRev, tracePath }
