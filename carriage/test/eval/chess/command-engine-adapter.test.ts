@@ -15,10 +15,11 @@ const STARTPOS = PERFT_POSITIONS.find((p) => p.name === "startpos")!.fen
 
 // A throwaway "engine": prints a perft count for startpos depths 1-3 from a hardcoded table.
 // `mode` selects correct / buggy (depth-3 off by two) / crash (always non-zero exit).
-function engineScript(mode: "correct" | "buggy" | "crash" | "garbage"): string {
+function engineScript(mode: "correct" | "buggy" | "crash" | "garbage" | "empty"): string {
   return `
 const depth = process.argv[3]
 if (${JSON.stringify(mode)} === "crash") process.exit(1)
+if (${JSON.stringify(mode)} === "empty") process.exit(0)
 if (${JSON.stringify(mode)} === "garbage") { console.log("8902 nodes searched"); process.exit(0) }
 const table = { "1": 20, "2": 400, "3": ${mode === "buggy" ? 8900 : 8902} }
 const n = table[depth]
@@ -27,7 +28,7 @@ console.log(n)
 `
 }
 
-async function writeEngine(mode: "correct" | "buggy" | "crash" | "garbage"): Promise<string> {
+async function writeEngine(mode: "correct" | "buggy" | "crash" | "garbage" | "empty"): Promise<string> {
   const dir = join(tmpdir(), `carriage-engine-${process.pid}-${Math.floor(performance.now() * 1000)}`)
   cleanups.push(() => rm(dir, { recursive: true, force: true }))
   await mkdir(dir, { recursive: true })
@@ -66,5 +67,10 @@ test("ChessOracle over a correct engine passes; over a buggy engine fails", asyn
 
 test("perft() rejects when the engine prints non-numeric (trailing-garbage) output", async () => {
   const adapter = adapterFor(await writeEngine("garbage"))
+  await expect(adapter.perft(3, STARTPOS)).rejects.toThrow("did not return a number")
+})
+
+test("perft() rejects when the engine exits 0 with no output (unmeasurable, not a zero count)", async () => {
+  const adapter = adapterFor(await writeEngine("empty"))
   await expect(adapter.perft(3, STARTPOS)).rejects.toThrow("did not return a number")
 })
