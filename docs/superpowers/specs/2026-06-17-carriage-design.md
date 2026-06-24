@@ -583,6 +583,11 @@ oracle are proven offline.
   human-oracle certification are not equally strong. How `EvalResult` records which oracle gated and how
   strongly, so `compare`/L4 can weight certifications. A records the *source* (perft / tests / human);
   a numeric strength score is deferred.
+  - **LLM-judge as a `source`.** A stochastic LLM-judge is a new, weak point on this spectrum: it carries
+    `source: llm-judge` + `deterministic: false`, may contribute *signals* to a `convergence` guard, but
+    must **not** be the gating AND-term by itself (§4.3 #2) — a deterministic signal must remain among the
+    gating terms. Allowing a judge to gate alone is a conscious, logged decision for a ground-truth-less
+    domain, never a default; D may never make it (§11).
 - **Resume granularity** — component-level is the A target; finer granularity deferred.
 
 ---

@@ -125,6 +125,22 @@ are *substrate*. The governing correctness rule — **every convergence cycle's 
 a gating Oracle** — is what keeps "done" from being stochastic self-certification, and is the fixed
 point self-improvement (D) may never weaken. See the spec for the full treatment.
 
+## Conventions
+
+**Cut an interface (seam) only where a second implementation is concretely planned** — otherwise keep
+it a concrete class. Carriage's tests run offline against the *real* implementations (temp files, faux
+provider, fixture git repos), so testability is **not** what justifies a seam; a committed second
+implementation is.
+
+| Interface | Why it's a seam | Implementations (now → planned) |
+|---|---|---|
+| `Oracle` | deterministic vs. (later) stochastic measurement | `StubOracle`, `ChessOracle` → LLM-judge |
+| `EngineAdapter` | one-shot CLI now; UCI / in-process later | `CommandEngineAdapter` |
+| `Tracker` | markdown now; beads / SQLite later | `MarkdownTracker` |
+
+**Concrete by design (one implementation, no committed second):** `TraceStore`, `Workspace`. Promote to
+an interface only when the second backend is actually on the roadmap, not pre-emptively.
+
 ---
 
 *Reference harnesses under `reference/` are third-party checkouts (each its own git repo) kept for
